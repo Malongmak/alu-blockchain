@@ -1,84 +1,88 @@
 #include "blockchain.h"
 
-#define CLEAN_UP (free(chain), close(fd))
-#define CLEAN_UP_BLOCKS (free(block), llist_destroy(list, 1, NULL))
-#define CHECK_ENDIAN(x) (endianness ? SWAPENDIAN(x) : (void)0)
+#define BUFSIZE 2048
+#define CLEAR_BUFF memset(buf, 0, BUFSIZE)
+#define CLEAR_N_LOAD(x) ((memset(buf, 0, BUFSIZE)), (read(fd, buf, x)))
+
+uint8_t _get_endianness(void);
+
 /**
- * blockchain_deserialize - deserializes blockchain from file
- * @path: path to serialized blockchain file
- * Return: pointer to deserialized blockchain or null
+ * load_blocks - After checking the header
+ * `load_blocks` iterate through the Blockchain to
+ * read and deserialize the blocks from data file save.hblk
+ * @fd: opened file descriptor
+ * @blocks: number of blocks
+ *
+ * Return: Pointer to linked list of blocks
+ * bchain->chain
+ *
  */
+
+llist_t *load_blocks(int fd, uint32_t blocks)
+{
+	llist_t *bchain = llist_create(MT_SUPPORT_TRUE);
+	block_t *block = NULL; /* here we gonna create blocks */
+	uint32_t idx;
+
+	for (idx = 0; idx < blocks; idx++)
+	{
+		block = calloc(1, sizeof(*block));
+		if (!block)
+			return (NULL);
+		if (read(fd, &(block->info), sizeof(block_info_t)) < 0 ||
+			read(fd, &(block->data.len), sizeof(int)) < 0 ||
+			read(fd, block->data.buffer, block->data.len) < 0 ||
+			read(fd, block->hash, SHA256_DIGEST_LENGTH) < 0)
+			return (free(block), NULL);
+
+		if (llist_add_node(bchain, block, ADD_NODE_REAR) < 0)
+			return (free(block), NULL);
+	}
+	return (bchain);
+}
+
+/**
+ * blockchain_deserialize - Deserializes (load) Bchain
+ * from a file provided in 'path'
+ * @path: path to the file to load the serialized Bchain from
+ *
+ * Return: Pointer to deserialized Bchain on Success, NULL Failure
+ */
+
 blockchain_t *blockchain_deserialize(char const *path)
 {
 	int fd;
-	blockchain_t *chain = NULL;
-	uint8_t endianness;
-	char buf[4096] = {0};
-	uint32_t size;
+	blockchain_t *Bchain = NULL;
+	char buf[BUFSIZE] = {0};
+	uint8_t endian;
+	uint32_t blocks = 0;
 
 	if (!path)
 		return (NULL);
 	fd = open(path, O_RDONLY);
-	if (fd == -1)
+	if (!fd)
+		return (NULL); /* read permission not set */
+	/* Let's go */
+	CLEAR_N_LOAD(strlen(HBLK_MAGIC));
+	if (strcmp(buf, HBLK_MAGIC))
 		return (NULL);
-	if (read(fd, buf, strlen(HBLK_MAGIC)) != strlen(HBLK_MAGIC) ||
-		strcmp(buf, HBLK_MAGIC))
-		return (CLEAN_UP, NULL);
-	buf[strlen(HBLK_VERSION)] = 0;
-	if (read(fd, buf, strlen(HBLK_VERSION)) != strlen(HBLK_VERSION) ||
-		strcmp(buf, HBLK_VERSION))
-		return (CLEAN_UP, NULL);
-	chain = calloc(1, sizeof(*chain));
-	if (!chain)
-		return (CLEAN_UP, NULL);
-	if (read(fd, &endianness, 1) != 1)
-		return (CLEAN_UP, NULL);
-	endianness = endianness != _get_endianness();
-	if (read(fd, &size, 4) != 4)
-		return (CLEAN_UP, NULL);
-	CHECK_ENDIAN(size);
-	chain->chain = deserialize_blocks(fd, size, endianness);
-	if (!chain)
-		return (CLEAN_UP, NULL);
-	return (close(fd), chain);
-}
 
-/**
- * deserialize_blocks - deserializes all the blocks in the file
- * @fd: open fd to save file
- * @size: number of blocks in the file
- * @endianness: if endianess needs switching
- * Return: pointer to list of blocks or NULL
- */
-llist_t *deserialize_blocks(int fd, uint32_t size, uint8_t endianness)
-{
-	block_t *block;
-	llist_t *list = llist_create(MT_SUPPORT_TRUE);
-	uint32_t i = 0;
-
-	if (!list)
+	CLEAR_N_LOAD(strlen(HBLK_VERSION));
+	if (strcmp(buf, HBLK_VERSION))
 		return (NULL);
-	for (i = 0; i < size; i++)
-	{
-		block = calloc(1, sizeof(*block));
-		if (!block)
-			return (CLEAN_UP_BLOCKS, NULL);
-		if (read(fd, &(block->info), sizeof(block->info)) != sizeof(block->info))
-			return (CLEAN_UP_BLOCKS, NULL);
-		CHECK_ENDIAN(block->info.index);
-		CHECK_ENDIAN(block->info.difficulty);
-		CHECK_ENDIAN(block->info.timestamp);
-		CHECK_ENDIAN(block->info.nonce);
-		if (read(fd, &(block->data.len), 4) != 4)
-			return (CLEAN_UP_BLOCKS, NULL);
-		CHECK_ENDIAN(block->data.len);
-		if (read(fd, block->data.buffer, block->data.len) != block->data.len)
-			return (CLEAN_UP_BLOCKS, NULL);
-		if (read(fd, block->hash, SHA256_DIGEST_LENGTH) !=
-			SHA256_DIGEST_LENGTH)
-			return (CLEAN_UP_BLOCKS, NULL);
-		if (llist_add_node(list, block, ADD_NODE_REAR))
-			return (CLEAN_UP_BLOCKS, NULL);
-	}
-	return (list);
+
+	CLEAR_N_LOAD(1);
+	endian = *buf;
+	if (endian != _get_endianness())
+		return (NULL);
+
+	CLEAR_N_LOAD(4);
+	blocks = *buf;
+
+	Bchain = calloc(1, sizeof(*Bchain));
+	if (!Bchain)
+		return (NULL);
+	Bchain->chain = load_blocks(fd, blocks);
+	close(fd);
+	return (Bchain);
 }
