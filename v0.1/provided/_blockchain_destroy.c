@@ -3,10 +3,11 @@
 #include "blockchain.h"
 
 /**
- * _blockchain_destroy - Deallocates a Blockchain structure
+ * _blockchain_destroy - DEallocates a Blockchain structure
  *
  * @blockchain: Pointer to the Blockchain structure to be freed
  */
+
 void _blockchain_destroy(blockchain_t *blockchain)
 {
 	if (!blockchain)
